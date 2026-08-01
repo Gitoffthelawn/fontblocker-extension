@@ -1,7 +1,7 @@
 {
 	"name": "Font blocker",
 	"description": "Blocks the fonts you want to block.",
-	"version": "1.20",
+	"version": "1.21",
 
 	"permissions": [ "storage", "contextMenus" ],
 
@@ -28,9 +28,12 @@
 		}
 	},
 
-	"applications": {
+	"browser_specific_settings": {
 		"gecko": {
-			"id": "fontblocker@hotblocks.nl"
+			"id": "fontblocker@hotblocks.nl",
+			"data_collection_permissions": {
+				"required": ["none"]
+			}
 		}
 	},
 
