@@ -21,6 +21,122 @@ function showPageAction() {
 
 
 /**
+ * Remove blocked fonts from the Font API (document.fonts)
+ */
+
+var fontApi = {
+
+	families: {},
+	removed: [],
+	started: false,
+	active: true,
+
+	normalize: function(family) {
+		return String(family).replace(/['"]/g, '').trim().toLowerCase();
+	},
+
+	blocked: function(family) {
+		return this.families[family] > 0;
+	},
+
+	isRemoved: function(font) {
+		for (var i = 0; i < this.removed.length; i++) {
+			if (this.removed[i].font === font) {
+				return true;
+			}
+		}
+		return false;
+	},
+
+	sweep: function() {
+		if (!this.active) return;
+		if (!document.fonts || !document.fonts.forEach) return;
+
+		var self = this;
+		var kill = [];
+		document.fonts.forEach(function(font) {
+			if (self.blocked(self.normalize(font.family))) {
+				kill.push(font);
+			}
+		});
+
+		for (var i = 0; i < kill.length; i++) {
+			var font = kill[i];
+			if (document.fonts.delete(font) && !self.isRemoved(font)) {
+				self.removed.push({family: self.normalize(font.family), font: font});
+			}
+		}
+	},
+
+	start: function() {
+		if (this.started || !document.fonts) return;
+		this.started = true;
+
+		var self = this;
+		var sweep = function() {
+			self.sweep();
+		};
+
+		try {
+			document.fonts.addEventListener('loading', sweep);
+			document.fonts.addEventListener('loadingdone', sweep);
+		}
+		catch (e) {}
+
+		setInterval(sweep, 1000);
+	},
+
+	block: function(families) {
+		for (var i = 0; i < families.length; i++) {
+			var family = this.normalize(families[i]);
+			this.families[family] = (this.families[family] || 0) + 1;
+		}
+		this.start();
+		this.sweep();
+	},
+
+	unblock: function(families) {
+		for (var i = 0; i < families.length; i++) {
+			var family = this.normalize(families[i]);
+			if (this.families[family]) {
+				this.families[family]--;
+			}
+		}
+		this.restore();
+	},
+
+	restore: function() {
+		var keep = [];
+		for (var i = 0; i < this.removed.length; i++) {
+			var item = this.removed[i];
+			if (this.active && this.blocked(item.family)) {
+				keep.push(item);
+			}
+			else {
+				try {
+					document.fonts.add(item.font);
+				}
+				catch (e) {}
+			}
+		}
+		this.removed = keep;
+	},
+
+	setActive: function(active) {
+		this.active = active;
+		if (active) {
+			this.sweep();
+		}
+		else {
+			this.restore();
+		}
+	},
+
+};
+
+
+
+/**
  * Add CSS to override @font-face
  */
 
@@ -49,8 +165,12 @@ function addFonts(fonts, replacements, type, manual) {
 	style.dataset.origin = 'fontblocker';
 	style.dataset.type = type;
 	style.dataset.count = fonts.length;
+	style.dataset.families = fonts.join('|');
 	style.innerHTML = css.join("\n");
 	(document.head || document.documentElement).appendChild(style);
+
+	// Remove from Font API
+	fontApi.block(fonts);
 
 	// Make sure it keeps being last
 	var move = function() {
@@ -167,7 +287,11 @@ chrome.runtime.onMessage.addListener(function(message, sender, sendResponse) {
 function removeFonts(type) {
 	console.debug('Removing fonts', type);
 	var style = document.querySelector('style[data-origin="fontblocker"][data-type="' + type + '"]');
-	style && style.remove();
+	if (!style) return;
+
+	var families = style.dataset.families ? style.dataset.families.split('|') : [];
+	fontApi.unblock(families);
+	style.remove();
 }
 
 
@@ -186,6 +310,7 @@ chrome.runtime.onMessage.addListener(function(message, sender, sendResponse) {
 			}
 			style.disabled = enabled;
 		});
+		fontApi.setActive(!enabled);
 		sendResponse({disabled: enabled});
 	}
 });
